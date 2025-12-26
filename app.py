@@ -1,0 +1,150 @@
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+from agro_analytics import AgroDatabase, TechnicalEngine, FundamentalEngine
+
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="AgroMonitor Pro V4.1", page_icon="🚜", layout="wide")
+
+# --- CSS PERSONALIZADO ---
+st.markdown("""
+<style>
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px; white-space: pre-wrap; background-color: #f0f2f6; border-radius: 4px 4px 0 0;
+    }
+    .stTabs [aria-selected="true"] { background-color: #2E7D32; color: white; }
+    .metric-card { border: 1px solid #e0e0e0; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+</style>
+""", unsafe_allow_html=True)
+
+# --- CARREGAMENTO DO SISTEMA ---
+@st.cache_resource
+def load_system():
+    return AgroDatabase(), TechnicalEngine(), FundamentalEngine()
+
+db, tech_eng, fund_eng = load_system()
+
+# --- HEADER ---
+st.title("🚜 AgroMonitor Pro V4.1")
+st.caption(f"Inteligência de Mercado: Ações • Fiagros • Commodities | {pd.Timestamp.now().strftime('%d/%m/%Y')}")
+
+# --- SIDEBAR ---
+st.sidebar.header("⚙️ Painel de Controle")
+min_score = st.sidebar.slider("Score Técnico Mínimo", 0, 100, 30)
+search_ticker = st.sidebar.text_input("Filtrar Ativo (ex: SLCE3)", "").upper()
+
+if st.sidebar.button("🔄 Atualizar Dados", type="primary"):
+    st.cache_data.clear()
+    st.rerun()
+
+# --- PREPARAÇÃO DOS DADOS (CACHEADA NA MEMÓRIA) ---
+# Aqui, ao contrário do Colab, carregamos o dicionário estático da classe
+assets_map = db.assets 
+
+# --- FUNÇÃO DE PROCESSAMENTO DE ABA ---
+def render_tab(category_name, assets_dict):
+    results = []
+    
+    # Container para mensagens de progresso (opcional, para não poluir)
+    status_container = st.empty()
+    
+    # Itera sobre os ativos da categoria
+    for ticker, name in assets_dict.items():
+        # Filtro de texto
+        if search_ticker and search_ticker not in ticker: continue
+        
+        # 1. Dados Técnicos
+        df = tech_eng.get_data(ticker)
+        if df is not None:
+            inds = tech_eng.calculate_signals(df)
+            t_score, t_status = tech_eng.generate_tech_score(df, inds)
+            
+            # Filtro de Score
+            if t_score >= min_score:
+                # 2. Dados Fundamentalistas
+                f_data = fund_eng.get_fundamentals(ticker, category_name)
+                f_score, f_status = fund_eng.generate_fund_score(f_data, category_name)
+                
+                # Dados para exibição
+                price = df['Close'].iloc[-1]
+                var_pct = ((price / df['Close'].iloc[-2]) - 1) * 100
+                dy_val = f_data['DY'] if f_data else 0
+                
+                results.append({
+                    "Ativo": ticker.replace('.SA', ''),
+                    "Nome": name,
+                    "Preço": price,
+                    "Var (1d)": var_pct,
+                    "Score Téc.": t_score,
+                    "Status Téc.": t_status,
+                    "Score Fund.": f_score,
+                    "Status Fund.": f_status,
+                    "DY%": dy_val,
+                    "RSI": inds['RSI'].iloc[-1]
+                })
+    
+    # Exibição
+    if results:
+        df_res = pd.DataFrame(results).sort_values("Score Téc.", ascending=False)
+        
+        # Métricas Rápidas
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Oportunidades", len(df_res))
+        c2.metric("Melhor Score Téc.", f"{df_res['Score Téc.'].max()}")
+        if category_name == 'Fiagros (Renda)':
+            c3.metric("Maior DY%", f"{df_res['DY%'].max():.1f}%")
+        else:
+            c3.metric("Maior Alta (1d)", f"{df_res['Var (1d)'].max():.2f}%")
+        
+        # Tabela Principal
+        st.dataframe(
+            df_res,
+            column_config={
+                "Score Téc.": st.column_config.ProgressColumn("Força Téc.", min_value=0, max_value=100, format="%d"),
+                "Preço": st.column_config.NumberColumn("Preço", format="R$ %.2f"),
+                "Var (1d)": st.column_config.NumberColumn("Var %", format="%.2f%%"),
+                "DY%": st.column_config.NumberColumn("DY Anual", format="%.1f%%"),
+                "RSI": st.column_config.NumberColumn("RSI", format="%.0f"),
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Gráfico do Líder
+        st.markdown("---")
+        top_asset = df_res.iloc[0]['Ativo']
+        full_ticker = top_asset + ".SA" if category_name != 'Commodities' and ".SA" not in top_asset else top_asset
+        if category_name == 'Commodities': 
+             # Reencontrar o ticker original da commodity (pois removemos na exibição)
+             full_ticker = [k for k,v in assets_dict.items() if top_asset in k][0]
+
+        st.subheader(f"📈 Análise Gráfica: {top_asset}")
+        df_chart = tech_eng.get_data(full_ticker)
+        if df_chart is not None:
+            inds_chart = tech_eng.calculate_signals(df_chart)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], low=df_chart['Low'], close=df_chart['Close'], name='Preço'))
+            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['SMA20'], name='SMA 20', line=dict(color='orange')))
+            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['SMA50'], name='SMA 50', line=dict(color='blue')))
+            fig.update_layout(height=400, xaxis_rangeslider_visible=False, template="plotly_white", margin=dict(l=20, r=20, t=30, b=20))
+            st.plotly_chart(fig, use_container_width=True)
+            
+    else:
+        st.info(f"Nenhum ativo em '{category_name}' atende aos filtros atuais.")
+
+# --- ABAS ---
+tabs = st.tabs(["🌱 Fiagros (Renda)", "🇧🇷 Ações BR", "🌎 BDRs & ETFs", "🛢️ Commodities"])
+
+with tabs[0]:
+    render_tab("Fiagros (Renda)", assets_map['Fiagros (Renda)'])
+
+with tabs[1]:
+    render_tab("Ações BR", assets_map['Ações BR'])
+
+with tabs[2]:
+    render_tab("BDRs & ETFs", assets_map['BDRs & ETFs'])
+
+with tabs[3]:
+    render_tab("Commodities", assets_map['Commodities'])
