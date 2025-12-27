@@ -4,9 +4,9 @@ import plotly.graph_objects as go
 from agro_analytics import AgroDatabase, TechnicalEngine, FundamentalEngine
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="AgroMonitor Pro V4.1", page_icon="🚜", layout="wide")
+st.set_page_config(page_title="AgroMonitor Pro V4.2", page_icon="🚜", layout="wide")
 
-# --- CSS PERSONALIZADO ---
+# --- CSS PERSONALIZADO (Visual Profissional) ---
 st.markdown("""
 <style>
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
@@ -15,10 +15,11 @@ st.markdown("""
     }
     .stTabs [aria-selected="true"] { background-color: #2E7D32; color: white; }
     .metric-card { border: 1px solid #e0e0e0; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    div[data-testid="stMetricValue"] { font-size: 1.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CARREGAMENTO DO SISTEMA ---
+# --- CARREGAMENTO DO SISTEMA (CACHE) ---
 @st.cache_resource
 def load_system():
     return AgroDatabase(), TechnicalEngine(), FundamentalEngine()
@@ -26,8 +27,8 @@ def load_system():
 db, tech_eng, fund_eng = load_system()
 
 # --- HEADER ---
-st.title("🚜 AgroMonitor Pro V4.1")
-st.caption(f"Inteligência de Mercado: Ações • Fiagros • Commodities | {pd.Timestamp.now().strftime('%d/%m/%Y')}")
+st.title("🚜 AgroMonitor Pro V4.2")
+st.caption(f"Inteligência de Mercado: Ações • Fiagros • Commodities • BDRs | {pd.Timestamp.now().strftime('%d/%m/%Y')}")
 
 # --- SIDEBAR ---
 st.sidebar.header("⚙️ Painel de Controle")
@@ -38,31 +39,29 @@ if st.sidebar.button("🔄 Atualizar Dados", type="primary"):
     st.cache_data.clear()
     st.rerun()
 
-# --- PREPARAÇÃO DOS DADOS (CACHEADA NA MEMÓRIA) ---
-# Aqui, ao contrário do Colab, carregamos o dicionário estático da classe
+# --- PREPARAÇÃO DOS DADOS ---
+# Carrega o mapa de ativos da classe AgroDatabase
 assets_map = db.assets 
 
-# --- FUNÇÃO DE PROCESSAMENTO DE ABA ---
+# --- FUNÇÃO PRINCIPAL DE PROCESSAMENTO E RENDERIZAÇÃO ---
 def render_tab(category_name, assets_dict):
     results = []
     
-    # Container para mensagens de progresso (opcional, para não poluir)
-    status_container = st.empty()
-    
+    # --- 1. VARREDURA DE DADOS ---
     # Itera sobre os ativos da categoria
     for ticker, name in assets_dict.items():
-        # Filtro de texto
+        # Filtro de busca textual
         if search_ticker and search_ticker not in ticker: continue
         
-        # 1. Dados Técnicos
+        # Análise Técnica
         df = tech_eng.get_data(ticker)
         if df is not None:
             inds = tech_eng.calculate_signals(df)
             t_score, t_status = tech_eng.generate_tech_score(df, inds)
             
-            # Filtro de Score
+            # Filtro de Score Mínimo
             if t_score >= min_score:
-                # 2. Dados Fundamentalistas
+                # Análise Fundamentalista
                 f_data = fund_eng.get_fundamentals(ticker, category_name)
                 f_score, f_status = fund_eng.generate_fund_score(f_data, category_name)
                 
@@ -72,7 +71,7 @@ def render_tab(category_name, assets_dict):
                 dy_val = f_data['DY'] if f_data else 0
                 
                 results.append({
-                    "Ativo": ticker.replace('.SA', ''),
+                    "Ativo": ticker.replace('.SA', ''), # Remove .SA para ficar limpo na tabela
                     "Nome": name,
                     "Preço": price,
                     "Var (1d)": var_pct,
@@ -84,16 +83,19 @@ def render_tab(category_name, assets_dict):
                     "RSI": inds['RSI'].iloc[-1]
                 })
     
-    # Exibição
+    # --- 2. EXIBIÇÃO ---
     if results:
         df_res = pd.DataFrame(results).sort_values("Score Téc.", ascending=False)
         
-        # Métricas Rápidas
+        # Métricas Rápidas (KPIs)
         c1, c2, c3 = st.columns(3)
         c1.metric("Oportunidades", len(df_res))
         c2.metric("Melhor Score Téc.", f"{df_res['Score Téc.'].max()}")
-        if category_name == 'Fiagros (Renda)':
-            c3.metric("Maior DY%", f"{df_res['DY%'].max():.1f}%")
+        
+        # Mostra DY para Fiagros/Ações ou Variação para outros
+        max_dy = df_res['DY%'].max()
+        if max_dy > 0:
+            c3.metric("Maior DY%", f"{max_dy:.1f}%")
         else:
             c3.metric("Maior Alta (1d)", f"{df_res['Var (1d)'].max():.2f}%")
         
@@ -111,30 +113,58 @@ def render_tab(category_name, assets_dict):
             use_container_width=True
         )
         
-        # Gráfico do Líder
         st.markdown("---")
-        top_asset = df_res.iloc[0]['Ativo']
-        full_ticker = top_asset + ".SA" if category_name != 'Commodities' and ".SA" not in top_asset else top_asset
-        if category_name == 'Commodities': 
-             # Reencontrar o ticker original da commodity (pois removemos na exibição)
-             full_ticker = [k for k,v in assets_dict.items() if top_asset in k][0]
+        
+        # --- 3. GRÁFICO INTERATIVO (SELECTBOX) ---
+        col_sel, col_empty = st.columns([1, 2])
+        with col_sel:
+            # Lista de opções baseada no resultado da varredura
+            lista_ativos = df_res['Ativo'].tolist()
+            ativo_selecionado = st.selectbox(f"📊 Ver gráfico de {category_name}:", lista_ativos)
+        
+        # Reconstrói o ticker completo para a API (.SA)
+        full_ticker = ativo_selecionado
+        if category_name != 'Commodities' and ".SA" not in full_ticker:
+             full_ticker += ".SA"
+        elif category_name == 'Commodities':
+             # Para commodities, o nome na tabela já é o ticker (ex: ZC=F), então mantém.
+             pass
 
-        st.subheader(f"📈 Análise Gráfica: {top_asset}")
+        # Gera o gráfico
+        st.subheader(f"📈 Análise Técnica: {ativo_selecionado}")
+        
         df_chart = tech_eng.get_data(full_ticker)
         if df_chart is not None:
             inds_chart = tech_eng.calculate_signals(df_chart)
             
             fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], low=df_chart['Low'], close=df_chart['Close'], name='Preço'))
-            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['SMA20'], name='SMA 20', line=dict(color='orange')))
-            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['SMA50'], name='SMA 50', line=dict(color='blue')))
-            fig.update_layout(height=400, xaxis_rangeslider_visible=False, template="plotly_white", margin=dict(l=20, r=20, t=30, b=20))
+            
+            # Candlestick
+            fig.add_trace(go.Candlestick(x=df_chart.index, open=df_chart['Open'], high=df_chart['High'], 
+                                       low=df_chart['Low'], close=df_chart['Close'], name='Preço'))
+            
+            # Médias Móveis
+            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['SMA20'], name='SMA 20', 
+                                   line=dict(color='orange', width=1.5)))
+            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['SMA50'], name='SMA 50', 
+                                   line=dict(color='blue', width=1.5)))
+            
+            # Bandas de Bollinger
+            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['BB_H'], name='BB High', 
+                                   line=dict(color='gray', width=1, dash='dot'), showlegend=False))
+            fig.add_trace(go.Scatter(x=df_chart.index, y=inds_chart['BB_L'], name='BB Low', 
+                                   line=dict(color='gray', width=1, dash='dot'), fill='tonexty', 
+                                   fillcolor='rgba(200,200,200,0.1)', showlegend=False))
+            
+            fig.update_layout(height=500, xaxis_rangeslider_visible=False, template="plotly_white",
+                            margin=dict(l=20, r=20, t=30, b=20), legend=dict(orientation="h", y=1.05, x=0))
+            
             st.plotly_chart(fig, use_container_width=True)
             
     else:
         st.info(f"Nenhum ativo em '{category_name}' atende aos filtros atuais.")
 
-# --- ABAS ---
+# --- RENDERIZAÇÃO DAS ABAS ---
 tabs = st.tabs(["🌱 Fiagros (Renda)", "🇧🇷 Ações BR", "🌎 BDRs & ETFs", "🛢️ Commodities"])
 
 with tabs[0]:
