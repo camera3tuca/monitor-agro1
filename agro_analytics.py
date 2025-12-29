@@ -5,6 +5,7 @@ from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 import streamlit as st
+from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÃO ---
 BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "iExnKM1xcbQcYL3cNPhPQ3")
@@ -12,28 +13,27 @@ BRAPI_TOKEN = st.secrets.get("BRAPI_TOKEN", "iExnKM1xcbQcYL3cNPhPQ3")
 class AgroDatabase:
     def __init__(self):
         self.assets = {
-            'Ações BR': {
-                'SLCE3.SA': 'SLC Agrícola (Grãos)', 'AGRO3.SA': 'BrasilAgro (Terras)', 'SMTO3.SA': 'São Martinho (Açúcar)',
-                'RAIZ4.SA': 'Raízen (Bioenergia)', 'JALL3.SA': 'Jalles Machado (Açúcar)', 'SOJA3.SA': 'Boa Safra (Sementes)',
-                'TTEN3.SA': '3Tentos (Varejo)', 'AGXY3.SA': 'AgroGalaxy (Insumos)', 'BEEF3.SA': 'Minerva (Boi)',
-                'MRFG3.SA': 'Marfrig (Boi)', 'JBSS3.SA': 'JBS (Global)', 'BRFS3.SA': 'BRF (Aves/Suínos)',
-                'CAML3.SA': 'Camil (Alimentos)', 'MDIA3.SA': 'M. Dias Branco (Massas)', 'JOPA3.SA': 'Josapar (Arroz)',
-                'SUZB3.SA': 'Suzano (Celulose)', 'KLBN11.SA': 'Klabin (Papel)', 'KEPL3.SA': 'Kepler Weber (Silos)'
-            },
-            'Fiagros (Renda)': {
+            'Fiagros (Renda Mensal)': {
                 'SNAG11.SA': 'Suno Agro', 'KNCA11.SA': 'Kinea Agro', 'VGIA11.SA': 'Valora CRA',
                 'BBGO11.SA': 'BB Crédito', 'FGAA11.SA': 'FG Agro', 'RZAG11.SA': 'Riza Agro',
-                'XPCA11.SA': 'XP Crédito', 'AGRX11.SA': 'Exes Araguaia', 'CPTR11.SA': 'Capitania Agro'
+                'XPCA11.SA': 'XP Crédito', 'AGRX11.SA': 'Exes Araguaia', 'CPTR11.SA': 'Capitania',
+                'RURA11.SA': 'Itaú Rural', 'OIAG11.SA': 'Ourinvest'
             },
-            'BDRs & ETFs': {
-                'DE': 'Deere & Co (Maquinário)', 'AGCO': 'AGCO Corp (Maquinário)', 'ADM': 'Archer Daniels (Trading)',
-                'BG': 'Bunge (Trading)', 'MOS': 'Mosaic (Fertilizantes)', 'NTR': 'Nutrien (Fertilizantes)',
-                'CTVA': 'Corteva (Sementes)', 'CF': 'CF Industries (Nitrogênio)', 'BVEG39.SA': 'iShares Global Agric.',
-                'RZTR11.SA': 'Investo Teckma (Terras)'
+            'Ações (Crescimento)': {
+                'SLCE3.SA': 'SLC Agrícola', 'AGRO3.SA': 'BrasilAgro', 'SMTO3.SA': 'São Martinho',
+                'RAIZ4.SA': 'Raízen', 'SOJA3.SA': 'Boa Safra', 'TTEN3.SA': '3Tentos',
+                'AGXY3.SA': 'AgroGalaxy', 'BEEF3.SA': 'Minerva', 'MRFG3.SA': 'Marfrig',
+                'JBSS3.SA': 'JBS', 'BRFS3.SA': 'BRF', 'CAML3.SA': 'Camil', 'MDIA3.SA': 'M. Dias Branco',
+                'SUZB3.SA': 'Suzano', 'KLBN11.SA': 'Klabin', 'KEPL3.SA': 'Kepler Weber'
+            },
+            'Global (BDRs/ETFs)': {
+                'DE': 'Deere & Co', 'AGCO': 'AGCO Corp', 'ADM': 'Archer Daniels',
+                'BG': 'Bunge', 'MOS': 'Mosaic', 'NTR': 'Nutrien', 'CTVA': 'Corteva',
+                'CF': 'CF Industries', 'BVEG39.SA': 'iShares Global', 'RZTR11.SA': 'Investo Teckma'
             },
             'Commodities': {
-                'ZC=F': 'Milho (Chicago)', 'ZS=F': 'Soja (Chicago)', 'KC=F': 'Café (Nova York)',
-                'LE=F': 'Boi Gordo (Futuro)', 'SB=F': 'Açúcar (Bruto)'
+                'ZC=F': 'Milho (Chicago)', 'ZS=F': 'Soja (Chicago)', 'KC=F': 'Café (NY)',
+                'LE=F': 'Boi Gordo', 'SB=F': 'Açúcar'
             }
         }
 
@@ -45,7 +45,8 @@ class AgroDatabase:
 class TechnicalEngine:
     def get_data(self, ticker):
         try:
-            df = yf.download(ticker, period='1y', progress=False, auto_adjust=True)
+            # Pega dados mais longos para médias longas
+            df = yf.download(ticker, period='2y', progress=False, auto_adjust=True)
             if df.empty or len(df) < 50: return None
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
@@ -71,52 +72,69 @@ class TechnicalEngine:
         return i
 
     def generate_tech_score(self, df, i):
-        if df is None or i is None: return 0, "N/A"
+        if df is None or not i: return 0, "N/A"
         score = 0
         curr = df['Close'].iloc[-1]
         
-        # Lógica de Pontuação
+        # Tendência
         if 'SMA20' in i and curr > i['SMA20'].iloc[-1]: score += 10
         if 'SMA50' in i and curr > i['SMA50'].iloc[-1]: score += 15
-        if 'SMA200' in i and curr > i['SMA200'].iloc[-1]: score += 15
+        if 'SMA200' in i and curr > i['SMA200'].iloc[-1]: score += 20 # Peso maior para longo prazo
         
+        # RSI
         rsi = i['RSI'].iloc[-1] if 'RSI' in i else 50
-        if rsi < 30: score += 20
+        if rsi < 30: score += 25 # Forte oportunidade
         elif 30 <= rsi <= 60: score += 10
         elif rsi > 70: score -= 10
         
-        if 'MACD' in i and i['MACD'].iloc[-1] > i['MACD_S'].iloc[-1]: score += 30
+        # MACD
+        if 'MACD' in i and i['MACD'].iloc[-1] > i['MACD_S'].iloc[-1]: score += 20
         
         final = min(100, max(0, score))
-        if final >= 75: status = "🟢 FORTE"
+        if final >= 75: status = "🟢 COMPRA FORTE"
         elif final >= 60: status = "🟢 COMPRA"
         elif final >= 40: status = "⚪ NEUTRO"
         else: status = "🔴 VENDA"
         return final, status
 
-    def generate_insight(self, df, i, ticker):
-        """Gera um texto explicativo automático (Feature Premium)"""
-        if not i: return "Dados insuficientes."
-        
-        curr = df['Close'].iloc[-1]
-        rsi = i['RSI'].iloc[-1]
-        sma200 = i['SMA200'].iloc[-1]
-        
-        trend = "Alta" if curr > sma200 else "Baixa"
-        momento = "Sobrevendido (Oportunidade)" if rsi < 30 else "Sobrecomprado (Cuidado)" if rsi > 70 else "Neutro"
-        
-        return f"O ativo {ticker} está em tendência de **{trend}** no longo prazo (vs SMA200). O momento atual é **{momento}** com RSI em {rsi:.0f}."
-
 class FundamentalEngine:
+    def calculate_dy_manual(self, ticker):
+        """Calcula DY somando dividendos dos últimos 12 meses (Correção do erro 0%)"""
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.dividends
+            if hist.empty: return 0.0
+            
+            # Filtra últimos 12 meses
+            start_date = (datetime.now() - timedelta(days=365)).replace(tzinfo=None)
+            hist.index = hist.index.tz_localize(None)
+            divs_12m = hist[hist.index >= start_date].sum()
+            
+            # Preço atual
+            price = stock.history(period='1d')['Close'].iloc[-1]
+            if price > 0:
+                return (divs_12m / price) * 100
+            return 0.0
+        except:
+            return 0.0
+
     def get_fundamentals(self, ticker, category):
         if category == 'Commodities': return None
         try:
             stock = yf.Ticker(ticker)
             info = stock.info
+            
+            # Tenta pegar DY pronto, se falhar, calcula manual
+            dy = info.get('dividendYield', 0)
+            if dy is None or dy == 0:
+                dy = self.calculate_dy_manual(ticker)
+            else:
+                dy = dy * 100
+
             return {
                 'P/L': info.get('trailingPE', 0),
                 'P/VP': info.get('priceToBook', 0),
-                'DY': (info.get('dividendYield', 0) or 0) * 100,
+                'DY': dy,
                 'ROE': (info.get('returnOnEquity', 0) or 0) * 100
             }
         except: return None
@@ -125,15 +143,24 @@ class FundamentalEngine:
         if not data: return 0, "N/A"
         score = 50
         
+        # Lógica Específica para FIAGROS
         if "Fiagros" in category:
-            if 0.90 <= data['P/VP'] <= 1.10: score += 30
-            elif data['P/VP'] < 0.90: score += 40
-            else: score -= 20
-            if data['DY'] > 12: score += 20
+            # DY é o rei
+            if data['DY'] > 13: score += 35 # Excelente pagador
+            elif data['DY'] > 10: score += 20
+            elif data['DY'] < 6: score -= 20
+            
+            # P/VP (Desconto vs Ágio)
+            pvp = data.get('P/VP', 0)
+            if pvp > 0:
+                if pvp < 0.90: score += 25 # Desconto alto
+                elif 0.90 <= pvp <= 1.05: score += 15 # Preço justo
+                elif pvp > 1.20: score -= 15 # Caro
         else:
-            if 0 < data['P/L'] <= 15: score += 15
+            # Lógica Ações
+            if 0 < data['P/L'] <= 12: score += 20
             if 0 < data['P/VP'] <= 2.0: score += 15
-            if data['ROE'] >= 10: score += 10
+            if data['ROE'] >= 15: score += 15
             if data['DY'] >= 6: score += 10
             
         final = min(100, max(0, score))
@@ -141,3 +168,22 @@ class FundamentalEngine:
         elif final >= 50: status = "✅ SÓLIDO"
         else: status = "⚠️ ATENÇÃO"
         return final, status
+
+    def generate_insight(self, t_score, f_score, dy, category):
+        """Gera texto explicativo em linguagem natural"""
+        insight = []
+        
+        # Análise Técnica
+        if t_score >= 70: insight.append("Tendência gráfica muito forte.")
+        elif t_score <= 30: insight.append("Gráfico aponta forte correção.")
+        else: insight.append("Movimento lateral no gráfico.")
+        
+        # Análise Fundamentalista
+        if "Fiagros" in category:
+            if dy > 11: insight.append(f"Excelente pagador de dividendos ({dy:.1f}% aa).")
+            elif dy < 8: insight.append(f"Dividendos abaixo da média do setor ({dy:.1f}% aa).")
+        else:
+            if f_score >= 70: insight.append("Fundamentos robustos e baratos.")
+            elif f_score <= 40: insight.append("Múltiplos esticados ou baixa rentabilidade.")
+            
+        return " ".join(insight)
