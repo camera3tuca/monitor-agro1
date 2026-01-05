@@ -45,15 +45,15 @@ class AgroDatabase:
 
 class TechnicalEngine:
     def get_data(self, ticker):
-        # Tenta 2 vezes em caso de falha de conexão
-        for _ in range(2):
+        # Tenta 3 vezes com pausa para evitar bloqueio
+        for _ in range(3):
             try:
                 df = yf.download(ticker, period='2y', progress=False, auto_adjust=True)
                 if not df.empty and len(df) > 50:
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = df.columns.get_level_values(0)
                     return df
-                time.sleep(0.5)
+                time.sleep(1) # Pausa de 1s
             except: 
                 time.sleep(1)
         return None
@@ -125,15 +125,14 @@ class FundamentalEngine:
     def get_fundamentals(self, ticker, category):
         if category == 'Commodities': return None
         
-        # TENTATIVA DE RETRY (3x) para evitar Rate Limit
+        # TENTATIVA DE RETRY (3x) com pausa maior
         for attempt in range(3):
             try:
                 stock = yf.Ticker(ticker)
                 info = stock.info
                 
-                # Se info estiver vazio, força erro para tentar de novo ou usar fallback
-                if not info or len(info) < 5: 
-                    raise ValueError("Dados vazios")
+                # Se info estiver vazio, tenta de novo
+                if not info: raise ValueError("Dados vazios")
 
                 # Tenta pegar DY pronto, se falhar, calcula manual
                 dy = info.get('dividendYield', 0)
@@ -149,9 +148,9 @@ class FundamentalEngine:
                     'ROE': (info.get('returnOnEquity', 0) or 0) * 100
                 }
             except:
-                time.sleep(1) # Espera 1s antes de tentar de novo
+                time.sleep(1.5) # Pausa maior (1.5s) para garantir
         
-        # Se falhar 3x, tenta pelo menos o DY manual que é mais leve
+        # Se falhar 3x, retorna zerado para não quebrar a tabela
         dy_fallback = self.calculate_dy_manual(ticker)
         return {'P/L': 0, 'P/VP': 0, 'DY': dy_fallback, 'ROE': 0}
 
