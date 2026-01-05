@@ -125,7 +125,7 @@ class FundamentalEngine:
     def get_fundamentals(self, ticker, category):
         if category == 'Commodities': return None
         
-        # TENTATIVA DE RETRY (3x) com pausa maior
+        # TENTATIVA DE RETRY (3x) com pausa maior para garantir dados
         for attempt in range(3):
             try:
                 stock = yf.Ticker(ticker)
@@ -150,7 +150,7 @@ class FundamentalEngine:
             except:
                 time.sleep(1.5) # Pausa maior (1.5s) para garantir
         
-        # Se falhar 3x, retorna zerado para não quebrar a tabela
+        # Se falhar 3x, retorna zerado para não quebrar a tabela, mas tenta DY manual
         dy_fallback = self.calculate_dy_manual(ticker)
         return {'P/L': 0, 'P/VP': 0, 'DY': dy_fallback, 'ROE': 0}
 
