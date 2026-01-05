@@ -6,7 +6,7 @@ from agro_analytics import AgroDatabase, TechnicalEngine, FundamentalEngine
 import time
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="AgroMonitor Premium V6.3", page_icon="🌾", layout="wide")
+st.set_page_config(page_title="AgroMonitor Premium V6.4", page_icon="🌾", layout="wide")
 
 # --- CSS EXECUTIVO ---
 st.markdown("""
@@ -33,7 +33,7 @@ db, tech_eng, fund_eng = load_system()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🚜 AgroMonitor V6.3")
+    st.title("🚜 AgroMonitor V6.4")
     min_score = st.slider("Score Técnico Mínimo", 0, 100, 30)
     search_ticker = st.text_input("🔍 Buscar Ativo", "").upper()
     st.markdown("---")
@@ -77,7 +77,7 @@ def render_premium_tab(category_name, assets_dict):
         
         # ATUALIZA BARRA E PAUSA
         progress_bar.progress((i + 1) / total_assets)
-        time.sleep(0.5) # Pausa essencial para o Yahoo Finance não bloquear
+        time.sleep(0.5) # Pausa estratégica
         
         df = tech_eng.get_data(ticker)
         if df is not None:
@@ -153,7 +153,8 @@ def render_premium_tab(category_name, assets_dict):
             st.info(top_asset['Insight'])
             
             g1, g2 = st.columns(2)
-            # CORREÇÃO DE ID: Key única baseada na categoria E no ticker
+            # --- FIX CRUCIAL: CHAVES ÚNICAS PARA OS GRÁFICOS ---
+            # O parâmetro key=f"..." evita o erro StreamlitDuplicateElementId
             with g1: 
                 st.plotly_chart(
                     create_gauge(top_asset['Score Téc.'], "Técnico"), 
@@ -198,7 +199,7 @@ def render_premium_tab(category_name, assets_dict):
             
             fig.update_layout(height=500, template="plotly_white", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
             
-            # CORREÇÃO DE ID: Key única para o gráfico principal
+            # Key única para o gráfico principal também
             st.plotly_chart(fig, use_container_width=True, key=f"chart_main_{category_name}_{top_asset['Ticker']}")
 
     else:
