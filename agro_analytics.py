@@ -44,16 +44,18 @@ class AgroDatabase:
         return ticker, "Outros"
 
 class TechnicalEngine:
-    def get_data(self, ticker):
-        # Tenta 3 vezes com pausa para evitar bloqueio
-        for _ in range(3):
+    # CACHE DE 4 HORAS: Evita chamar o Yahoo toda hora e ser bloqueado
+    @st.cache_data(ttl=14400, show_spinner=False)
+    def get_data(_self, ticker):
+        time.sleep(0.3) # Pausa respeitosa entre requisições
+        for _ in range(2):
             try:
                 df = yf.download(ticker, period='2y', progress=False, auto_adjust=True)
                 if not df.empty and len(df) > 50:
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = df.columns.get_level_values(0)
                     return df
-                time.sleep(1) # Pausa de 1s
+                time.sleep(1)
             except: 
                 time.sleep(1)
         return None
@@ -104,17 +106,14 @@ class TechnicalEngine:
 
 class FundamentalEngine:
     def calculate_dy_manual(self, ticker):
-        """Calcula DY manual para corrigir falhas do Yahoo"""
         try:
             stock = yf.Ticker(ticker)
             hist = stock.dividends
             if hist.empty: return 0.0
-            
             start_date = (datetime.now() - timedelta(days=365)).replace(tzinfo=None)
             hist.index = hist.index.tz_localize(None)
             divs_12m = hist[hist.index >= start_date].sum()
             
-            # Pega preço atual com fallback
             hist_price = stock.history(period='5d')
             if not hist_price.empty:
                 price = hist_price['Close'].iloc[-1]
@@ -122,44 +121,40 @@ class FundamentalEngine:
             return 0.0
         except: return 0.0
 
-    def get_fundamentals(self, ticker, category):
+    # CACHE DE 4 HORAS: Vital para fundamentos
+    @st.cache_data(ttl=14400, show_spinner=False)
+    def get_fundamentals(_self, ticker, category):
         if category == 'Commodities': return None
         
-        # TENTATIVA DE RETRY (3x) com pausa maior para garantir dados
-        for attempt in range(3):
-            try:
-                stock = yf.Ticker(ticker)
-                info = stock.info
-                
-                # Se info estiver vazio, tenta de novo
-                if not info: raise ValueError("Dados vazios")
-
-                # Tenta pegar DY pronto, se falhar, calcula manual
-                dy = info.get('dividendYield', 0)
-                if dy is None or dy == 0:
-                    dy = self.calculate_dy_manual(ticker)
-                else:
-                    dy = dy * 100
-
-                return {
-                    'P/L': info.get('trailingPE', 0),
-                    'P/VP': info.get('priceToBook', 0),
-                    'DY': dy,
-                    'ROE': (info.get('returnOnEquity', 0) or 0) * 100
-                }
-            except:
-                time.sleep(1.5) # Pausa maior (1.5s) para garantir
+        # Tenta pegar DY pronto, se falhar, calcula manual
+        dy_manual = _self.calculate_dy_manual(ticker)
         
-        # Se falhar 3x, retorna zerado para não quebrar a tabela, mas tenta DY manual
-        dy_fallback = self.calculate_dy_manual(ticker)
-        return {'P/L': 0, 'P/VP': 0, 'DY': dy_fallback, 'ROE': 0}
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            # Se a API falhar, usamos o DY calculado manualmente e zeramos o resto
+            if not info or len(info) < 2:
+                return {'P/L': 0, 'P/VP': 0, 'DY': dy_manual, 'ROE': 0}
+
+            dy_api = info.get('dividendYield', 0)
+            dy_final = (dy_api * 100) if dy_api and dy_api > 0 else dy_manual
+
+            return {
+                'P/L': info.get('trailingPE', 0),
+                'P/VP': info.get('priceToBook', 0),
+                'DY': dy_final,
+                'ROE': (info.get('returnOnEquity', 0) or 0) * 100
+            }
+        except:
+            # Fallback total
+            return {'P/L': 0, 'P/VP': 0, 'DY': dy_manual, 'ROE': 0}
 
     def generate_fund_score(self, data, category):
         if not data: return 0, "N/A"
         score = 50
         
         if "Fiagros" in category:
-            # DY é o rei nos Fiagros
             if data['DY'] > 13: score += 35
             elif data['DY'] > 10: score += 20
             elif data['DY'] < 6: score -= 20
