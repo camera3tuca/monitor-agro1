@@ -3,10 +3,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from agro_analytics import AgroDatabase, TechnicalEngine, FundamentalEngine
+import uuid
 import time
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="AgroMonitor Premium V6.4", page_icon="🌾", layout="wide")
+st.set_page_config(page_title="AgroMonitor Premium V6.5", page_icon="🌾", layout="wide")
 
 # --- CSS EXECUTIVO ---
 st.markdown("""
@@ -33,11 +34,12 @@ db, tech_eng, fund_eng = load_system()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🚜 AgroMonitor V6.4")
+    st.title("🚜 AgroMonitor V6.5")
     min_score = st.slider("Score Técnico Mínimo", 0, 100, 30)
     search_ticker = st.text_input("🔍 Buscar Ativo", "").upper()
     st.markdown("---")
-    if st.button("🔄 Atualizar Análise", type="primary"):
+    # Botão para limpar cache se precisar
+    if st.button("🔄 Limpar Cache e Atualizar", type="primary"):
         st.cache_data.clear()
         st.rerun()
 
@@ -67,19 +69,18 @@ def create_gauge(value, title):
 def render_premium_tab(category_name, assets_dict):
     results = []
     
-    # 1. VARREDURA (COM SLEEP)
-    # Barra de progresso para dar feedback visual
+    # BARRA DE PROGRESSO
     progress_bar = st.progress(0)
     total_assets = len(assets_dict)
     
     for i, (ticker, name) in enumerate(assets_dict.items()):
         if search_ticker and search_ticker not in ticker: continue
         
-        # ATUALIZA BARRA E PAUSA
         progress_bar.progress((i + 1) / total_assets)
-        time.sleep(0.5) # Pausa estratégica
         
+        # O delay agora é tratado internamente no agro_analytics para ser eficiente
         df = tech_eng.get_data(ticker)
+        
         if df is not None:
             inds = tech_eng.calculate_signals(df)
             if not inds: continue
@@ -110,7 +111,7 @@ def render_premium_tab(category_name, assets_dict):
     
     progress_bar.empty()
     
-    # 2. DASHBOARD
+    # DASHBOARD
     if results:
         df_res = pd.DataFrame(results).sort_values("Score Téc.", ascending=False)
         top_asset = df_res.iloc[0]
@@ -153,19 +154,22 @@ def render_premium_tab(category_name, assets_dict):
             st.info(top_asset['Insight'])
             
             g1, g2 = st.columns(2)
-            # --- FIX CRUCIAL: CHAVES ÚNICAS PARA OS GRÁFICOS ---
-            # O parâmetro key=f"..." evita o erro StreamlitDuplicateElementId
+            # CORREÇÃO DE ID: Gera UUIDs aleatórios para garantir unicidade absoluta
+            # Isso resolve o StreamlitDuplicateElementId de vez
+            id_tec = str(uuid.uuid4())
+            id_fund = str(uuid.uuid4())
+            
             with g1: 
                 st.plotly_chart(
                     create_gauge(top_asset['Score Téc.'], "Técnico"), 
                     use_container_width=True, 
-                    key=f"gauge_tec_{category_name}_{top_asset['Ticker']}"
+                    key=id_tec
                 )
             with g2: 
                 st.plotly_chart(
                     create_gauge(top_asset['Score Fund.'], "Fundamentos"), 
                     use_container_width=True, 
-                    key=f"gauge_fund_{category_name}_{top_asset['Ticker']}"
+                    key=id_fund
                 )
             
             if top_asset['DY%'] > 0:
@@ -180,6 +184,7 @@ def render_premium_tab(category_name, assets_dict):
              for k, v in assets_dict.items():
                  if top_asset['Ticker'] in k: full_ticker = k; break
         
+        # Como está cacheado, isso não vai bater na API de novo
         df_chart = tech_eng.get_data(full_ticker)
         if df_chart is not None:
             inds = tech_eng.calculate_signals(df_chart)
@@ -199,8 +204,8 @@ def render_premium_tab(category_name, assets_dict):
             
             fig.update_layout(height=500, template="plotly_white", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
             
-            # Key única para o gráfico principal também
-            st.plotly_chart(fig, use_container_width=True, key=f"chart_main_{category_name}_{top_asset['Ticker']}")
+            id_chart = str(uuid.uuid4())
+            st.plotly_chart(fig, use_container_width=True, key=id_chart)
 
     else:
         st.warning(f"Nenhum ativo encontrado em '{category_name}' com os filtros atuais.")
