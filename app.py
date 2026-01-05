@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -5,15 +6,12 @@ from plotly.subplots import make_subplots
 from agro_analytics import AgroDatabase, TechnicalEngine, FundamentalEngine
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="AgroMonitor Premium V6", page_icon="🌾", layout="wide")
+st.set_page_config(page_title="AgroMonitor Premium V6.1", page_icon="🌾", layout="wide")
 
 # --- CSS EXECUTIVO ---
 st.markdown("""
 <style>
-    /* Fundo geral mais limpo */
     .stApp { background-color: #f8f9fa; }
-    
-    /* Cards de Métricas */
     div[data-testid="metric-container"] {
         background-color: #ffffff;
         border-left: 5px solid #2E7D32;
@@ -21,19 +19,8 @@ st.markdown("""
         border-radius: 5px;
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
-    
-    /* Tabelas */
-    div[data-testid="stDataFrame"] {
-        background-color: white;
-        border-radius: 10px;
-        padding: 10px;
-    }
-    
-    /* Abas */
-    .stTabs [aria-selected="true"] {
-        background-color: #2E7D32 !important;
-        color: white !important;
-    }
+    div[data-testid="stDataFrame"] { background-color: white; border-radius: 10px; padding: 10px; }
+    .stTabs [aria-selected="true"] { background-color: #2E7D32 !important; color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -46,28 +33,22 @@ db, tech_eng, fund_eng = load_system()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🚜 AgroMonitor V6")
-    st.markdown("### ⚙️ Filtros de Inteligência")
-    
+    st.title("🚜 AgroMonitor V6.1")
     min_score = st.slider("Score Técnico Mínimo", 0, 100, 30)
     search_ticker = st.text_input("🔍 Buscar Ativo", "").upper()
-    
     st.markdown("---")
     if st.button("🔄 Atualizar Análise", type="primary"):
         st.cache_data.clear()
         st.rerun()
-    
-    st.info("ℹ️ **Versão Premium:** Cálculo manual de dividendos para Fiagros ativado.")
 
 # --- HEADER ---
 col1, col2 = st.columns([3, 1])
 with col1:
     st.title("Monitor Executivo do Agronegócio")
-    st.markdown("**Análise em Tempo Real:** Ações, Fundos, BDRs e Commodities.")
 with col2:
     st.markdown(f"*{pd.Timestamp.now().strftime('%d/%m/%Y')}*")
 
-# --- FUNÇÃO DE GAUGE (VELOCÍMETRO) ---
+# --- FUNÇÃO DE GAUGE ---
 def create_gauge(value, title):
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
@@ -76,24 +57,27 @@ def create_gauge(value, title):
         gauge = {
             'axis': {'range': [0, 100]},
             'bar': {'color': "#2E7D32" if value >= 60 else "#f9a825" if value >= 40 else "#c62828"},
-            'steps': [
-                {'range': [0, 40], 'color': "#ffebee"},
-                {'range': [40, 70], 'color': "#fff3e0"},
-                {'range': [70, 100], 'color': "#e8f5e9"}],
+            'steps': [{'range': [0, 40], 'color': "#ffebee"}, {'range': [40, 70], 'color': "#fff3e0"}, {'range': [70, 100], 'color': "#e8f5e9"}],
         }
     ))
     fig.update_layout(height=150, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)")
     return fig
 
-# --- RENDERIZAÇÃO PRINCIPAL ---
+# --- RENDERIZAÇÃO ---
 def render_premium_tab(category_name, assets_dict):
     results = []
+    progress_text = st.empty()
     
     # 1. VARREDURA
-    progress_text = st.empty()
+    total_assets = len(assets_dict)
+    processed = 0
     
     for ticker, name in assets_dict.items():
         if search_ticker and search_ticker not in ticker: continue
+        
+        # Feedback visual de progresso
+        processed += 1
+        # progress_text.text(f"Analisando {ticker}... ({processed}/{total_assets})")
         
         df = tech_eng.get_data(ticker)
         if df is not None:
@@ -106,12 +90,10 @@ def render_premium_tab(category_name, assets_dict):
                 f_data = fund_eng.get_fundamentals(ticker, category_name)
                 f_score, f_status = fund_eng.generate_fund_score(f_data, category_name)
                 
-                # Dados para exibição
                 price = df['Close'].iloc[-1]
                 var_pct = ((price / df['Close'].iloc[-2]) - 1) * 100
                 dy_val = f_data['DY'] if f_data else 0
                 
-                # Insight Automático
                 insight_text = fund_eng.generate_insight(t_score, f_score, dy_val, category_name)
                 
                 results.append({
@@ -123,7 +105,6 @@ def render_premium_tab(category_name, assets_dict):
                     "Score Fund.": f_score,
                     "DY%": dy_val,
                     "Insight": insight_text,
-                    "RSI": inds['RSI'].iloc[-1] if 'RSI' in inds else 50,
                     "Status": t_status
                 })
     
@@ -134,7 +115,6 @@ def render_premium_tab(category_name, assets_dict):
         df_res = pd.DataFrame(results).sort_values("Score Téc.", ascending=False)
         top_asset = df_res.iloc[0]
         
-        # KPIs do Topo
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Oportunidades", len(df_res))
         k2.metric("Melhor Ativo", top_asset['Ticker'], delta=f"{top_asset['Score Téc.']} pts")
@@ -150,7 +130,6 @@ def render_premium_tab(category_name, assets_dict):
         
         st.divider()
         
-        # Layout: Tabela (Esq) + Detalhes do Líder (Dir)
         col_table, col_detail = st.columns([2, 1])
         
         with col_table:
@@ -173,19 +152,17 @@ def render_premium_tab(category_name, assets_dict):
             st.markdown(f"### 🏆 Destaque: {top_asset['Ticker']}")
             st.info(top_asset['Insight'])
             
-            # Gauges (Velocímetros)
             g1, g2 = st.columns(2)
-            with g1: st.plotly_chart(create_gauge(top_asset['Score Téc.'], "Técnico"), use_container_width=True)
-            with g2: st.plotly_chart(create_gauge(top_asset['Score Fund.'], "Fundamentos"), use_container_width=True)
+            # CORREÇÃO DE ID DUPLICADO AQUI: Adicionado parâmetro KEY único
+            with g1: st.plotly_chart(create_gauge(top_asset['Score Téc.'], "Técnico"), use_container_width=True, key=f"g_tec_{category_name}")
+            with g2: st.plotly_chart(create_gauge(top_asset['Score Fund.'], "Fundamentos"), use_container_width=True, key=f"g_fund_{category_name}")
             
             if top_asset['DY%'] > 0:
                 st.success(f"💰 **Dividend Yield:** {top_asset['DY%']:.2f}% ao ano")
         
-        # Gráfico Avançado (Abaixo)
         st.markdown("---")
         st.subheader(f"📈 Análise Gráfica: {top_asset['Ticker']}")
         
-        # Reconstrói Ticker
         full_ticker = top_asset['Ticker']
         if category_name != 'Commodities' and ".SA" not in full_ticker: full_ticker += ".SA"
         elif category_name == 'Commodities': 
@@ -198,7 +175,6 @@ def render_premium_tab(category_name, assets_dict):
             
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             
-            # Preço e Médias
             fig.add_trace(go.Candlestick(x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
                                        low=df_chart['Low'], close=df_chart['Close'], name='Preço'), row=1, col=1)
             if 'SMA20' in inds:
@@ -206,13 +182,12 @@ def render_premium_tab(category_name, assets_dict):
             if 'SMA200' in inds:
                 fig.add_trace(go.Scatter(x=df_chart.index, y=inds['SMA200'], name='Média 200', line=dict(color='blue')), row=1, col=1)
             
-            # MACD
             if 'MACD' in inds:
                 fig.add_trace(go.Scatter(x=df_chart.index, y=inds['MACD'], name='MACD', line=dict(color='purple')), row=2, col=1)
                 fig.add_trace(go.Bar(x=df_chart.index, y=inds['MACD']-inds['MACD_S'], name='Hist', marker_color='gray'), row=2, col=1)
             
             fig.update_layout(height=500, template="plotly_white", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"chart_{category_name}") # Key extra por segurança
 
     else:
         st.warning(f"Nenhum ativo encontrado em '{category_name}' com os filtros atuais.")
