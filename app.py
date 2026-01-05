@@ -1,12 +1,12 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from agro_analytics import AgroDatabase, TechnicalEngine, FundamentalEngine
+import time
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="AgroMonitor Premium V6.1", page_icon="🌾", layout="wide")
+st.set_page_config(page_title="AgroMonitor Premium V6.3", page_icon="🌾", layout="wide")
 
 # --- CSS EXECUTIVO ---
 st.markdown("""
@@ -33,7 +33,7 @@ db, tech_eng, fund_eng = load_system()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🚜 AgroMonitor V6.1")
+    st.title("🚜 AgroMonitor V6.3")
     min_score = st.slider("Score Técnico Mínimo", 0, 100, 30)
     search_ticker = st.text_input("🔍 Buscar Ativo", "").upper()
     st.markdown("---")
@@ -66,18 +66,18 @@ def create_gauge(value, title):
 # --- RENDERIZAÇÃO ---
 def render_premium_tab(category_name, assets_dict):
     results = []
-    progress_text = st.empty()
     
-    # 1. VARREDURA
+    # 1. VARREDURA (COM SLEEP)
+    # Barra de progresso para dar feedback visual
+    progress_bar = st.progress(0)
     total_assets = len(assets_dict)
-    processed = 0
     
-    for ticker, name in assets_dict.items():
+    for i, (ticker, name) in enumerate(assets_dict.items()):
         if search_ticker and search_ticker not in ticker: continue
         
-        # Feedback visual de progresso
-        processed += 1
-        # progress_text.text(f"Analisando {ticker}... ({processed}/{total_assets})")
+        # ATUALIZA BARRA E PAUSA
+        progress_bar.progress((i + 1) / total_assets)
+        time.sleep(0.5) # Pausa essencial para o Yahoo Finance não bloquear
         
         df = tech_eng.get_data(ticker)
         if df is not None:
@@ -108,7 +108,7 @@ def render_premium_tab(category_name, assets_dict):
                     "Status": t_status
                 })
     
-    progress_text.empty()
+    progress_bar.empty()
     
     # 2. DASHBOARD
     if results:
@@ -153,9 +153,19 @@ def render_premium_tab(category_name, assets_dict):
             st.info(top_asset['Insight'])
             
             g1, g2 = st.columns(2)
-            # CORREÇÃO DE ID DUPLICADO AQUI: Adicionado parâmetro KEY único
-            with g1: st.plotly_chart(create_gauge(top_asset['Score Téc.'], "Técnico"), use_container_width=True, key=f"g_tec_{category_name}")
-            with g2: st.plotly_chart(create_gauge(top_asset['Score Fund.'], "Fundamentos"), use_container_width=True, key=f"g_fund_{category_name}")
+            # CORREÇÃO DE ID: Key única baseada na categoria E no ticker
+            with g1: 
+                st.plotly_chart(
+                    create_gauge(top_asset['Score Téc.'], "Técnico"), 
+                    use_container_width=True, 
+                    key=f"gauge_tec_{category_name}_{top_asset['Ticker']}"
+                )
+            with g2: 
+                st.plotly_chart(
+                    create_gauge(top_asset['Score Fund.'], "Fundamentos"), 
+                    use_container_width=True, 
+                    key=f"gauge_fund_{category_name}_{top_asset['Ticker']}"
+                )
             
             if top_asset['DY%'] > 0:
                 st.success(f"💰 **Dividend Yield:** {top_asset['DY%']:.2f}% ao ano")
@@ -187,7 +197,9 @@ def render_premium_tab(category_name, assets_dict):
                 fig.add_trace(go.Bar(x=df_chart.index, y=inds['MACD']-inds['MACD_S'], name='Hist', marker_color='gray'), row=2, col=1)
             
             fig.update_layout(height=500, template="plotly_white", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig, use_container_width=True, key=f"chart_{category_name}") # Key extra por segurança
+            
+            # CORREÇÃO DE ID: Key única para o gráfico principal
+            st.plotly_chart(fig, use_container_width=True, key=f"chart_main_{category_name}_{top_asset['Ticker']}")
 
     else:
         st.warning(f"Nenhum ativo encontrado em '{category_name}' com os filtros atuais.")
